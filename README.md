@@ -24,6 +24,8 @@
 |                        | Overriding                  |   -   |    -    |
 |                        | ERC20 Support               |   -   |    -    |
 |                        | Native Asset Support        |   -   |    -    |
+|                        | Flash Loan Resistant        |   -   |    -    |
+|                        | Min required TVL to trigger |   -   |    -    |
 
 ## Foundry
 
