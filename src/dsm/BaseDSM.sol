@@ -2,25 +2,22 @@
 pragma solidity ^0.8.0;
 
 import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
-import {DelayLib} from "../utils/DelayLib.sol";
 
 /// @author philogy <https://github.com/philogy>
 abstract contract BaseDSM {
-    struct EffectState {
-        uint128 scheduledAt;
-        uint128 delay;
+    enum PayloadVersion {
+        NormalExecute,
+        MultiPayload,
+        Confirmed
     }
 
-    uint8 internal constant SIMPLE_PAYLOAD_VERSION = 0x00;
-    uint8 internal constant MULTI_PAYLOAD_VERSION = 0x01;
-
-    mapping(bytes32 => EffectState) internal _effects;
+    mapping(bytes32 => uint256) public settleTimeOf;
 
     event Scheduled(bytes32 indexed effectID, bytes effectData);
     event Executed(bytes32 indexed effectID);
 
     error InvalidValue();
-    error UnrecognizedVersion(uint8 version);
+    error UnsupportedVersion(PayloadVersion version);
     error NonexistentEffect(bytes32 effectID);
     error NotSettled(bytes32 effectID);
     error EffectFailed(bytes32 effectID);
@@ -30,67 +27,108 @@ abstract contract BaseDSM {
         assert(block.timestamp > 0);
     }
 
-    function schedule(address target, uint256 value, bytes calldata innerPayload)
-        external
-        payable
-        returns (bytes32 newEffectID)
-    {
-        if (value != msg.value) revert InvalidValue();
-        _checkSchedulerAuthorized(msg.sender);
-        // Only `innerPayload` is variable length so it's safe to apply `encodePacked`.
-        bytes memory effectData = abi.encodePacked(target, msg.value, _getUniqueNonce(), innerPayload);
-        newEffectID = keccak256(effectData);
-        _effects[newEffectID] = EffectState({scheduledAt: uint128(block.timestamp), delay: _currentDelay()});
-        emit Scheduled(newEffectID, effectData);
-        // Implicit return of `newEffectID`.
-    }
-
     function execute(bytes calldata outerPayload) public {
-        uint8 version = uint8(outerPayload[0]);
-        if (version == SIMPLE_PAYLOAD_VERSION) {
-            _execute(
-                address(bytes20(outerPayload[1:21])),
-                uint128(bytes16(outerPayload[21:37])),
-                uint64(bytes8(outerPayload[37:45])),
-                outerPayload[29:]
-            );
-        } else if (version == MULTI_PAYLOAD_VERSION) {
+        PayloadVersion version = PayloadVersion(outerPayload[0]);
+        uint256 i = 1;
+        if (version == PayloadVersion.NormalExecute) {
+            // Effect's who's settlement time has passed and can be normally executed.
+            (address target, uint256 value, uint64 nonce, bytes calldata innerPayload) =
+                _decodeEffect(i, outerPayload[i:]);
+            _executeNormalSettled(target, value, nonce, innerPayload);
+        } else if (version == PayloadVersion.MultiPayload) {
+            // Efficient multicall for effect execution.
             uint256 payloadLength = outerPayload.length;
-            uint256 i = 1;
+            bytes calldata nextPayload;
             while (i < payloadLength) {
-                unchecked {
-                    uint256 nextLength = uint24(bytes3(outerPayload[i:i += 3]));
-                    execute(outerPayload[i:i += nextLength]);
-                }
+                (i, nextPayload) = _decodeVarLength(i, outerPayload[i:]);
+                execute(nextPayload);
             }
+        } else if (version == PayloadVersion.Confirmed) {
+            // Effect that can/needs to be settled with an extra "confirmation proof" e.g. paused effects.
+            bytes calldata confirmProof;
+            (i, confirmProof) = _decodeVarLength(i, outerPayload[i:]);
+            (address target, uint256 value, uint64 nonce, bytes calldata innerPayload) =
+                _decodeEffect(i, outerPayload[i:]);
+            _executeConfirmedEffect(confirmProof, target, value, nonce, innerPayload);
         } else {
-            revert UnrecognizedVersion(version);
+            revert UnsupportedVersion(version);
         }
     }
 
     function pausedTill() public view virtual returns (uint256);
 
-    function _execute(address target, uint256 value, uint64 nonce, bytes calldata innerPayload) internal {
-        bytes32 effectID = keccak256(abi.encodePacked(target, value, nonce, innerPayload));
-        EffectState memory estate = _effects[effectID];
-        if (estate.scheduledAt == 0) revert NonexistentEffect(effectID);
-        uint256 settlementTime = _getSettlementTime(estate);
-        if (settlementTime < Math.max(block.timestamp, pausedTill())) revert NotSettled(effectID);
-        delete _effects[effectID];
+    function _schedule(address target, uint256 value, bytes calldata innerPayload)
+        internal
+        returns (bytes32 newEffectID)
+    {
+        // Only `innerPayload` is variable length so it's safe to apply `encodePacked`.
+        bytes memory effectData = abi.encodePacked(target, value, _getUniqueNonce(), innerPayload);
+        newEffectID = keccak256(effectData);
+        settleTimeOf[newEffectID] = block.timestamp + _currentDelay();
+        emit Scheduled(newEffectID, effectData);
+        // Implicit return of `newEffectID`.
+    }
+
+    function _decodeEffect(uint256 i, bytes calldata data)
+        internal
+        pure
+        returns (address target, uint256 value, uint64 nonce, bytes calldata innerPayload)
+    {
+        unchecked {
+            target = address(bytes20(data[i:i += 20]));
+            value = uint128(bytes16(data[i:i += 16]));
+            nonce = uint64(bytes8(data[i:i += 8]));
+            innerPayload = data[i:];
+        }
+    }
+
+    function _executeNormalSettled(address target, uint256 value, uint64 nonce, bytes calldata innerPayload) internal {
+        (bytes32 effectID, uint256 settlesAt) = _validateSettledEffect(target, value, nonce, innerPayload);
+        if (settlesAt < Math.max(block.timestamp, pausedTill())) revert NotSettled(effectID);
+        _executeEffect(effectID, target, value, innerPayload);
+    }
+
+    function _executeConfirmedEffect(
+        bytes calldata confirmProof,
+        address target,
+        uint256 value,
+        uint64 nonce,
+        bytes calldata innerPayload
+    ) internal {
+        (bytes32 effectID,) = _validateEffectExists(target, value, nonce, innerPayload);
+        _checkConfirmation(confirmProof);
+        _executeEffect(effectID, target, value, innerPayload);
+    }
+
+    function _executeEffect(bytes32 effectID, address target, uint256 value, bytes calldata innerPayload) internal {
+        delete settleTimeOf[effectID];
         (bool success,) = target.call{value: value}(innerPayload);
         if (!success) revert EffectFailed(effectID);
         emit Executed(effectID);
     }
 
-    function _checkSchedulerAuthorized(address scheduler) internal virtual;
+    function _validateEffectExists(address target, uint256 value, uint64 nonce, bytes calldata innerPayload)
+        internal
+        view
+        returns (bytes32, uint256)
+    {
+        bytes32 effectID = keccak256(abi.encodePacked(target, value, nonce, innerPayload));
+        uint256 settlesAt = settleTimeOf[effectID];
+        if (settlesAt == 0) revert NonexistentEffect(effectID);
+        return (effectID, settlesAt);
+    }
 
     function _getUniqueNonce() internal virtual returns (uint64);
 
     function _currentDelay() internal view virtual returns (uint128);
 
-    function _validSince() internal view virtual returns (uint256);
+    function _checkConfirmation(bytes calldata confirmationProof) internal virtual;
 
-    function _getSettlementTime(EffectState memory estate) internal view returns (uint256) {
-        return DelayLib.getSettlementTime(estate.scheduledAt, estate.delay, _currentDelay(), _validSince());
+    function _decodeVarLength(uint256 i, bytes calldata buffer) internal pure returns (uint256, bytes calldata) {
+        unchecked {
+            uint256 nextLength = uint24(bytes3(buffer[i:i += 3]));
+            bytes calldata decoded = buffer[i:i += nextLength];
+            return (i, decoded);
+        }
     }
 }

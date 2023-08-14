@@ -1,48 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Ownable} from "solady/auth/Ownable.sol";
+import {OwnableRoles} from "solady/auth/OwnableRoles.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {Pausable} from "openzeppelin/security/Pausable.sol";
 import {BaseDSM} from "./BaseDSM.sol";
-import {DelayLib} from "../utils/DelayLib.sol";
 
 /// @author philogy <https://github.com/philogy>
-contract ExternalDSM is Ownable, BaseDSM {
+contract ExternalDSM is OwnableRoles, BaseDSM, Pausable {
     using SafeCastLib for uint256;
 
     uint40 internal lastPaused;
-    bool public paused;
     uint64 internal effectNonce;
     uint40 public currentDelay;
-    uint40 public validSince;
 
-    mapping(address => bool) public approvedScheduler;
+    uint256 public constant AUTHORIZED_SCHEDULER_ROLE = _ROLE_0;
 
-    event Paused();
-    event Unpaused();
     event DelaySet(uint256 delay);
-    event SchedulerAdded(address indexed scheduler);
-    event SchedulerRemoved(address indexed scheduler);
-
-    error CurrentlyPaused();
-    error CurrentlyUnpaused();
-    error AlreadyScheduler(address scheduler);
-    error NotScheduler(address scheduler);
 
     constructor(address initialOwner, uint40 startDelay) {
         _initializeOwner(initialOwner);
-        validSince = uint40(block.timestamp);
         _setDelay(startDelay);
-    }
-
-    modifier whenNotPaused() {
-        if (paused) revert CurrentlyPaused();
-        _;
-    }
-
-    modifier whenPaused() {
-        if (!paused) revert CurrentlyUnpaused();
-        _;
     }
 
     function pause() external onlyOwner {
@@ -54,25 +32,20 @@ contract ExternalDSM is Ownable, BaseDSM {
     }
 
     function setDelay(uint40 newDelay) external onlyOwner {
-        uint256 newValidity = DelayLib.getNewValidity(currentDelay, validSince);
-        validSince = newValidity.toUint40();
         _setDelay(newDelay);
     }
 
-    function addScheduler(address scheduler) external onlyOwner {
-        if (approvedScheduler[scheduler]) revert AlreadyScheduler(scheduler);
-        approvedScheduler[scheduler] = true;
-        emit SchedulerAdded(scheduler);
-    }
-
-    function removeScheduler(address scheduler) external onlyOwner {
-        if (!approvedScheduler[scheduler]) revert NotScheduler(scheduler);
-        approvedScheduler[scheduler] = false;
-        emit SchedulerRemoved(scheduler);
+    function schedule(address target, uint256 value, bytes calldata innerPayload)
+        external
+        payable
+        returns (bytes32 newEffectID)
+    {
+        if (value != msg.value) revert InvalidValue();
+        return _schedule(target, msg.value, innerPayload);
     }
 
     function pausedTill() public view override returns (uint256) {
-        if (paused) return type(uint256).max;
+        if (paused()) return type(uint256).max;
         return lastPaused;
     }
 
@@ -82,15 +55,9 @@ contract ExternalDSM is Ownable, BaseDSM {
         }
     }
 
-    function _pause() internal whenNotPaused {
-        paused = true;
-        emit Paused();
-    }
-
-    function _unpause() internal whenPaused {
-        paused = false;
+    function _unpause() internal override {
         lastPaused = uint40(block.timestamp);
-        emit Unpaused();
+        super._unpause();
     }
 
     function _setDelay(uint40 delay) internal {
@@ -102,11 +69,7 @@ contract ExternalDSM is Ownable, BaseDSM {
         return currentDelay;
     }
 
-    function _validSince() internal view override returns (uint256) {
-        return validSince;
-    }
-
     function _checkSchedulerAuthorized(address scheduler) internal view override {
-        if (!approvedScheduler[scheduler] && owner() != scheduler) revert UnauthorizedScheduler(scheduler);
+        if (!hasAnyRole(scheduler, AUTHORIZED_SCHEDULER_ROLE)) revert Unauthorized();
     }
 }
