@@ -28,7 +28,7 @@ abstract contract BaseDSM {
     }
 
     function execute(bytes calldata outerPayload) public {
-        PayloadVersion version = PayloadVersion(outerPayload[0]);
+        PayloadVersion version = PayloadVersion(uint8(outerPayload[0]));
         uint256 i = 1;
         if (version == PayloadVersion.NormalExecute) {
             // Effect's who's settlement time has passed and can be normally executed.
@@ -57,11 +57,11 @@ abstract contract BaseDSM {
 
     function pausedTill() public view virtual returns (uint256);
 
-    function _schedule(address target, uint256 value, bytes calldata innerPayload)
+    function _schedule(address target, uint256 value, bytes memory innerPayload)
         internal
         returns (bytes32 newEffectID)
     {
-        // Only `innerPayload` is variable length so it's safe to apply `encodePacked`.
+        // Only `innerPayload` is variable length so it's safe to apply `encodePacked` + hashing.
         bytes memory effectData = abi.encodePacked(target, value, _getUniqueNonce(), innerPayload);
         newEffectID = keccak256(effectData);
         settleTimeOf[newEffectID] = block.timestamp + _currentDelay();
@@ -83,7 +83,7 @@ abstract contract BaseDSM {
     }
 
     function _executeNormalSettled(address target, uint256 value, uint64 nonce, bytes calldata innerPayload) internal {
-        (bytes32 effectID, uint256 settlesAt) = _validateSettledEffect(target, value, nonce, innerPayload);
+        (bytes32 effectID, uint256 settlesAt) = _validateEffectExists(target, value, nonce, innerPayload);
         if (settlesAt < Math.max(block.timestamp, pausedTill())) revert NotSettled(effectID);
         _executeEffect(effectID, target, value, innerPayload);
     }
