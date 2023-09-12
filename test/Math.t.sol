@@ -2,11 +2,29 @@
 pragma solidity 0.8.21;
 
 import {Test} from "forge-std/Test.sol";
-import {cappedSub, deltaAdd} from "src/utils/Math.sol";
+import {min, max, cappedSub, deltaAdd} from "src/utils/Math.sol";
 
 /// @author philogy <https://github.com/philogy>
 contract MathTest is Test {
     function setUp() public {}
+
+    function test_fuzzingMax(uint256 x, uint256 y) public {
+        if (x > y) {
+            assertEq(max(x, y), x);
+        } else {
+            assertEq(max(x, y), y);
+        }
+        assertEq(max(x, y), max(y, x));
+    }
+
+    function test_fuzzingMin(uint256 x, uint256 y) public {
+        if (x < y) {
+            assertEq(min(x, y), x);
+        } else {
+            assertEq(min(x, y), y);
+        }
+        assertEq(min(x, y), min(y, x));
+    }
 
     function test_fuzzingCappedSub(uint256 x, uint256 y) public {
         if (x < y) {
