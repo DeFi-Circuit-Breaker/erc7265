@@ -4,6 +4,7 @@ pragma solidity 0.8.21;
 import {Test} from "forge-std/Test.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {abs} from "src/utils/Math.sol";
+import {BufferConfigLib, BufferConfig} from "src/limiter/BufferConfigLib.sol";
 import {BufferLib, Buffer, BufferResult} from "src/limiter/BufferLimiterLib.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -11,16 +12,14 @@ import {console2 as console} from "forge-std/console2.sol";
 contract BufferLimtierLibTest is Test {
     using SafeCastLib for uint256;
 
+    BufferConfig internal immutable CONFIG =
+        BufferConfigLib.initNew({maxDrawWad: -0.05e18, mainWindow: 1 days, elasticWindow: 10 minutes});
     Buffer internal buffer;
 
     uint256 tvl;
 
-    uint256 internal constant MAIN_WINDOW = 1 days;
-    uint256 internal constant ELASTIC_WINDOW = 10 minutes;
-    int256 internal constant MAX_DRAW = -0.05e18;
-
     function setUp() public {
-        buffer = BufferLib.newBuffer(block.timestamp);
+        buffer = BufferLib.initNew(block.timestamp);
         print("init");
     }
 
@@ -57,42 +56,31 @@ contract BufferLimtierLibTest is Test {
         print("2");
     }
 
-    function testInflows_2() public {
+    function testInflow_profit() public {
         _inflow(10e18);
-        skip(10 minutes);
+        skip(CONFIG.getMainWindow());
 
-        _outflow(0.5e18);
+        _update();
         print("1");
 
-        _inflow(40e18);
+        _inflow(1000e18);
         print("2");
+
+        tvl += 10e18;
+        print("2.1");
     }
 
     function _update() internal {
-        buffer = buffer.update({mainWindow: MAIN_WINDOW, elasticWindow: ELASTIC_WINDOW, time: block.timestamp});
+        buffer = buffer.update(CONFIG);
     }
 
     function _inflow(uint256 amount) internal {
-        buffer = buffer.recordFlow({
-            maxDrawWad: MAX_DRAW,
-            mainWindow: MAIN_WINDOW,
-            elasticWindow: ELASTIC_WINDOW,
-            time: block.timestamp,
-            reserves: tvl,
-            flow: amount.toInt256()
-        }).unwrap();
+        buffer = buffer.recordFlow(CONFIG, tvl, amount.toInt256()).unwrap();
         tvl += amount;
     }
 
     function _outflow(uint256 amount) internal {
-        BufferResult result = buffer.recordFlow({
-            maxDrawWad: MAX_DRAW,
-            mainWindow: MAIN_WINDOW,
-            elasticWindow: ELASTIC_WINDOW,
-            time: block.timestamp,
-            reserves: tvl,
-            flow: -amount.toInt256()
-        });
+        BufferResult result = buffer.recordFlow(CONFIG, tvl, -amount.toInt256());
 
         if (!result.isErr()) {
             tvl -= amount;
@@ -114,7 +102,7 @@ contract BufferLimtierLibTest is Test {
         emit log_named_decimal_uint("  TVL         ", tvl, 18);
         emit log_named_decimal_uint("  main        ", mainUsedWad, 18);
         emit log_named_decimal_uint("  elastic     ", elasticBufferWad, 18);
-        (int256 maxMainFlow, uint256 maxElasticDeplete) = buffer.getMaxFlow(MAX_DRAW, tvl);
+        (int256 maxMainFlow, uint256 maxElasticDeplete) = buffer.getMaxFlow(CONFIG, tvl);
         uint256 maxOut = abs(maxMainFlow) + maxElasticDeplete;
         emit log_named_decimal_uint("  max out     ", maxOut, 18);
     }
