@@ -2,7 +2,7 @@
 pragma solidity 0.8.21;
 
 import {Test} from "forge-std/Test.sol";
-import {min, max, cappedSub, deltaAdd} from "src/utils/Math.sol";
+import {min, max, cappedSub, deltaAdd, abs} from "src/utils/Math.sol";
 
 /// @author philogy <https://github.com/philogy>
 contract MathTest is Test {
@@ -49,6 +49,12 @@ contract MathTest is Test {
             assertGe(res, 0);
 
             assertEq(deltaAdd(x, y), uint256(res));
+        }
+    }
+
+    function test_fuzzingAbs(int256 x) public {
+        unchecked {
+            assertEq(abs(x), x < 0 ? uint256(-x) : uint256(x));
         }
     }
 }

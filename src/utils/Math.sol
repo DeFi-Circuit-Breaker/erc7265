@@ -25,15 +25,14 @@ function cappedSub(uint256 x, uint256 y) pure returns (uint256 z) {
     }
 }
 
+/**
+ * @dev Turns a signed integer into an unsigned one, removing the sign if negative. Note that unlike
+ * Solidity's unary `-x` operator this function will not revert if `x` is equal to -2^255 which has
+ * the same representation as +2^255.
+ */
 function abs(int256 x) pure returns (uint256 y) {
     assembly {
         y := xor(x, mul(slt(x, 0), xor(sub(0, x), x)))
-        if iszero(sub(y, shl(1, 255))) {
-            // revert Panic(0x11)
-            mstore(0x00, 0x4e487b71)
-            mstore(0x20, 0x11)
-            revert(0x1c, 0x24)
-        }
     }
 }
 
