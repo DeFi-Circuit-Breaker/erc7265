@@ -3,7 +3,8 @@ pragma solidity 0.8.21;
 
 import {Test} from "forge-std/Test.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {BufferLib, Buffer, BufferResult} from "../src/limiter/BufferLimiterLib.sol";
+import {abs} from "src/utils/Math.sol";
+import {BufferLib, Buffer, BufferResult} from "src/limiter/BufferLimiterLib.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 /// @author philogy <https://github.com/philogy>
@@ -19,7 +20,8 @@ contract BufferLimtierLibTest is Test {
     int256 internal constant MAX_DRAW = -0.05e18;
 
     function setUp() public {
-        buffer = BufferLib.newBuffer(block.timestamp, 0, 0);
+        buffer = BufferLib.newBuffer(block.timestamp);
+        print("init");
     }
 
     function testPass() public {
@@ -45,6 +47,27 @@ contract BufferLimtierLibTest is Test {
         print("_outflow(2.5e18) 2/2");
     }
 
+    function testInflows() public {
+        _inflow(10e18);
+        print("1");
+
+        skip(20 minutes);
+
+        _inflow(50e18);
+        print("2");
+    }
+
+    function testInflows_2() public {
+        _inflow(10e18);
+        skip(10 minutes);
+
+        _outflow(0.5e18);
+        print("1");
+
+        _inflow(40e18);
+        print("2");
+    }
+
     function _update() internal {
         buffer = buffer.update({mainWindow: MAIN_WINDOW, elasticWindow: ELASTIC_WINDOW, time: block.timestamp});
     }
@@ -55,7 +78,7 @@ contract BufferLimtierLibTest is Test {
             mainWindow: MAIN_WINDOW,
             elasticWindow: ELASTIC_WINDOW,
             time: block.timestamp,
-            preTvl: tvl,
+            reserves: tvl,
             flow: amount.toInt256()
         }).unwrap();
         tvl += amount;
@@ -67,7 +90,7 @@ contract BufferLimtierLibTest is Test {
             mainWindow: MAIN_WINDOW,
             elasticWindow: ELASTIC_WINDOW,
             time: block.timestamp,
-            preTvl: tvl,
+            reserves: tvl,
             flow: -amount.toInt256()
         });
 
@@ -89,7 +112,10 @@ contract BufferLimtierLibTest is Test {
         console.log("Buffer \"%s\" (t: %d)", name, block.timestamp);
         console.log("  last updated: %d", lastUpdatedAt);
         emit log_named_decimal_uint("  TVL         ", tvl, 18);
-        emit log_named_decimal_uint("  main used   ", mainUsedWad, 18);
+        emit log_named_decimal_uint("  main        ", mainUsedWad, 18);
         emit log_named_decimal_uint("  elastic     ", elasticBufferWad, 18);
+        (int256 maxMainFlow, uint256 maxElasticDeplete) = buffer.getMaxFlow(MAX_DRAW, tvl);
+        uint256 maxOut = abs(maxMainFlow) + maxElasticDeplete;
+        emit log_named_decimal_uint("  max out     ", maxOut, 18);
     }
 }
