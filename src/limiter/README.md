@@ -121,15 +121,17 @@ Similar to the outflow the elastic buffer is updated. However unlike the inflow 
   $$s' = \max(s \cdot x - |\Delta x|; 0) \cdot \frac{1}{x'} $$
 
 - **Main buffer update:**
+
   First the amount that was used to deplete the elastic buffer is removed from the amount delta:
 
-  $$ \Delta x' = \max(|\Delta x| - s\cdot x; 0)$$
+  $$\Delta x' = \max(|\Delta x| - s\cdot x; 0)$$
 
   $$v' = (v \cdot x - \frac{\Delta x'}{|r|}) \cdot \frac{1}{x'} $$
 
 - **Limit exceeded condition:**
+
   If the following condition is true it indicates that the limit has been exceeded. This is also
   when $v'$ would be negative.
 
-  $$ \frac{\Delta x'}{|r|} > v \cdot x $$
+  $$\frac{\Delta x'}{|r|} > v \cdot x$$
 
