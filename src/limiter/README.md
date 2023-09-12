@@ -135,3 +135,66 @@ Similar to the outflow the elastic buffer is updated. However unlike the inflow 
 
   $$\frac{\Delta x'}{|r|} > v \cdot x$$
 
+## Design Reasoning
+
+### Use of Relative values denominated in "WAD"
+
+Relative values are used because they offer a small data footprint while still offering precise
+calculations and supporting a wide range of flow denominations.
+
+e.g. 100% denominated in "WAD" (10^18) only requires a 60-bit number (64 if rounded up to the
+nearest full byte). This allows one to easily pack the `lastUpdatedAt` ($t_l$) timestamp, relative
+main & elastic buffers into 1 EVM word (32-bytes).
+
+### Purposeful truncation of timestamps and time operations to 32-bits
+
+On Ethereum the default way to access "universal" time is via the `TIMESTAMP` opcode
+(`block.timestamp` in Solidity) which returns UNIX time (seconds since 1970). Therefore the maximum
+time representable by a 32-bit timestamp in unix time is the 7th February 2106.
+
+Not only is this 83 years away, rate limiting & circuit breakers are themselves only intended to be
+temporary security solutions. Also over this time there are arguably other risk factors that
+may impede any given smart contract application e.g.:
+- backwards in-compatible changes to the EVM
+- "deletion" of contracts from the chain due to state expiry
+- other dependencies having similar "deprecation limits"
+
+**32-bit Timestamp Overflow**
+
+Even though the risk is minimal the contract purposefully truncates timestamps and computes time
+deltas in an underflowing manner to offer additional protection for contracts intending to use the
+rate limiter far into the future.
+
+This is because 32-bit truncation is equivalent to doing operations modulo `2^32`. For this reason
+we can safely say that the following holds:
+
+$$t_1 - t_0 \mod 2^{32} = t_1 - t_0 $$
+
+if
+  $$t_1 - t_0 < 2^{32}$$
+
+This essentially means that due to the truncated operations the logic in these libraries will
+continue to function correctly as long as buffers are updated at least once every 136 years.
+
+### The use of packed custom types over structs
+
+Variables typed as `uint256` are compact, only using 1 EVM word, making it efficent to read, write
+and operate on. In storage they only take up a single slot and during execution they can leave on
+the stack, taking up a single space and no memory.
+
+Structs on the other hand are more clunky, incurring more overhead for reading and writing from
+storage, as well as living in memory during execution.
+
+Custom types allows the library to leverage the efficiency of base types while still providing the
+base advantages of structs (multiple members, tight packing, being easily passed to methods).
+
+**`Buffer` and `BufferResult`**
+
+The `BufferResult` type aims to emulate the Rust sum-type `Result<T, E>` over `Buffer`
+(`Result<Buffer, ()>`). Internally this value is treated almost identically to the `Buffer`
+type, having a settable flag indicating whether it's a `Result::Err` or a `Result::Ok`.
+
+This abstraction allows functions like `recordFlow` to "return" errors, without reverting, allowing
+consumers to decide how to handle errors. Unlike other alternatives (such as e.g. returning `(bool
+success, Buffer buffer)`) the custom type ensures that errors must be explicitly handled to some
+degree and cannot simply be ignored if they are to be compatible with other `Buffer`-typed logic.
