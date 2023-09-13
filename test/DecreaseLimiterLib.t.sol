@@ -3,24 +3,24 @@ pragma solidity 0.8.21;
 
 import {Test} from "forge-std/Test.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {abs} from "src/utils/Math.sol";
-import {BufferConfigLib, BufferConfig} from "src/limiter/BufferConfigLib.sol";
-import {BufferLib, Buffer, BufferResult} from "src/limiter/BufferLimiterLib.sol";
+import {abs, sign, signNeg} from "src/utils/Math.sol";
+import {LimiterConfigLib, LimiterConfig} from "src/limiter/LimiterConfigLib.sol";
+import {DecreaseLimiterLib, DecreaseLimiter, DecreaseResult} from "src/limiter/DecreaseLimiterLib.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 /// @author philogy <https://github.com/philogy>
 contract BufferLimtierLibTest is Test {
     using SafeCastLib for uint256;
+    using SafeCastLib for int256;
 
-    BufferConfig internal immutable CONFIG =
-        BufferConfigLib.initNew({maxDrawWad: -0.05e18, mainWindow: 1 days, elasticWindow: 10 minutes});
-    Buffer internal buffer;
+    LimiterConfig internal config =
+        LimiterConfigLib.initNew({maxDrawWad: 0.05e18, mainWindow: 1 days, elasticWindow: 10 minutes});
+    DecreaseLimiter internal limiter;
 
     uint256 tvl;
 
     function setUp() public {
-        buffer = BufferLib.initNew(block.timestamp);
-        print("init");
+        limiter = DecreaseLimiterLib.initNew(block.timestamp);
     }
 
     function testPass() public {
@@ -58,7 +58,7 @@ contract BufferLimtierLibTest is Test {
 
     function testInflow_profit() public {
         _inflow(10e18);
-        skip(CONFIG.getMainWindow());
+        skip(config.getMainWindow());
 
         _update();
         print("1");
@@ -71,24 +71,32 @@ contract BufferLimtierLibTest is Test {
     }
 
     function _update() internal {
-        buffer = buffer.update(CONFIG);
+        limiter = limiter.update(config);
     }
 
     function _inflow(uint256 amount) internal {
-        buffer = buffer.recordFlow(CONFIG, tvl, amount.toInt256()).unwrap();
-        tvl += amount;
+        int256 flow = amount.toInt256();
+        limiter = limiter.recordFlow(config, tvl, flow).unwrap();
+        _applyTvlChange(flow);
     }
 
     function _outflow(uint256 amount) internal {
-        BufferResult result = buffer.recordFlow(CONFIG, tvl, -amount.toInt256());
+        _handleFlow(-amount.toInt256());
+    }
 
-        if (!result.isErr()) {
-            tvl -= amount;
-            buffer = result.unwrap();
-        } else {
-            console.log("!!! LIMIT HIT !!!");
-            emit log_named_decimal_uint("  amount", amount, 18);
-        }
+    function _handleFlow(int256 flow) internal {
+        if ((flow < 0) == (config.getMaxDrawWad() < 0)) {
+            DecreaseResult result = limiter.recordFlow(config, tvl, flow);
+
+            if (result.isOk()) {
+                _applyTvlChange(flow);
+                limiter = result.unwrap();
+            } else {
+                console.log("!!! LIMIT HIT !!!");
+                emit log_named_decimal_int("  flow", flow, 18);
+                fail();
+            }
+        } else {}
     }
 
     function print() public {
@@ -96,14 +104,18 @@ contract BufferLimtierLibTest is Test {
     }
 
     function print(string memory name) public {
-        (uint256 lastUpdatedAt, uint256 mainUsedWad, uint256 elasticBufferWad) = buffer.unpack();
-        console.log("Buffer \"%s\" (t: %d)", name, block.timestamp);
+        (uint256 lastUpdatedAt, uint256 mainUsedWad, uint256 elasticBufferWad) = limiter.unpack();
+        console.log("Limiter \"%s\" (t: %d)", name, block.timestamp);
         console.log("  last updated: %d", lastUpdatedAt);
         emit log_named_decimal_uint("  TVL         ", tvl, 18);
         emit log_named_decimal_uint("  main        ", mainUsedWad, 18);
         emit log_named_decimal_uint("  elastic     ", elasticBufferWad, 18);
-        (int256 maxMainFlow, uint256 maxElasticDeplete) = buffer.getMaxFlow(CONFIG, tvl);
-        uint256 maxOut = abs(maxMainFlow) + maxElasticDeplete;
+        (uint256 maxMainFlow, uint256 maxElasticDeplete) = limiter.getMaxFlow(config, tvl);
+        uint256 maxOut = maxMainFlow + maxElasticDeplete;
         emit log_named_decimal_uint("  max out     ", maxOut, 18);
+    }
+
+    function _applyTvlChange(int256 delta) internal {
+        tvl = (tvl.toInt256() + delta).toUint256();
     }
 }

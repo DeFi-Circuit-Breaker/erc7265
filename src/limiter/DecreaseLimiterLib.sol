@@ -2,26 +2,27 @@
 pragma solidity ^0.8.0;
 
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {BufferConfig} from "./BufferConfigLib.sol";
+import {LimiterConfig} from "./LimiterConfigLib.sol";
 import {cappedSub, abs, deltaAdd, min} from "../utils/Math.sol";
+import {delta} from "../utils/Timestamp.sol";
 
 /**
- * @dev Packed active buffer state (
+ * @dev Packed active limiter state (
  *   uint32: lastUpdated,
  *   bool(uint1): isError,
  *   uint72: relMainBuffer,
  *   uint151: relElastic
  * )
  */
-type BufferResult is uint256;
+type DecreaseResult is uint256;
 
-type Buffer is uint256;
+type DecreaseLimiter is uint256;
 
-using BufferLib for Buffer global;
-using BufferLib for BufferResult global;
+using DecreaseLimiterLib for DecreaseLimiter global;
+using DecreaseLimiterLib for DecreaseResult global;
 
 /// @author philogy <https://github.com/philogy>
-library BufferLib {
+library DecreaseLimiterLib {
     using SafeCastLib for uint256;
     using SafeCastLib for int256;
 
@@ -39,42 +40,42 @@ library BufferLib {
     uint256 internal constant _BOUND_ELASTIC_BUFFER_WAD = 0x80000000000000000000000000000000000000;
 
     error BufferPropertyOverflow();
-    error UnwrapBufferResultError();
+    error UnwrapBufferResultErr();
     error UnwrapBufferResultOk();
 
     /// @dev Selector of `BufferPropertyOverflow()`.
     uint256 internal constant _BUFFER_PROPERTY_OVERFLOW_ERROR_SELECTOR = 0x5f39d474;
 
-    /// @dev Selector of `UnwrapBufferResultError()`.
-    uint256 internal constant _UNWRAP_BUFFER_ERROR_ERROR_SELECTOR = 0xca428dba;
+    /// @dev Selector of `UnwrapBufferResultErr()`.
+    uint256 internal constant _UNWRAP_BUFFER_ERR_ERROR_SELECTOR = 0xfb6fddf2;
 
     /// @dev Selector of `UnwrapBufferResultOk()`.
     uint256 internal constant _UNWRAP_BUFFER_OK_ERROR_SELECTOR = 0xce3029e3;
 
     /**
-     * @dev Initializes a new buffer, equivalent to `_setBuffer(lastUpdatedAt, WAD, 0)`.
+     * @dev Initializes a new limiter, equivalent to `_setBuffer(lastUpdatedAt, WAD, 0)`.
      */
-    function initNew(uint256 lastUpdatedAt) internal pure returns (Buffer buffer) {
+    function initNew(uint256 lastUpdatedAt) internal pure returns (DecreaseLimiter limiter) {
         assembly {
-            buffer := or(shl(_TIMESTAMP_OFFSET, lastUpdatedAt), shl(_MAIN_BUFFER_OFFSET, WAD))
+            limiter := or(shl(_TIMESTAMP_OFFSET, lastUpdatedAt), shl(_MAIN_BUFFER_OFFSET, WAD))
         }
     }
 
-    function recordFlow(Buffer buffer, BufferConfig config, uint256 preReserves, int256 flow)
+    function recordFlow(DecreaseLimiter limiter, LimiterConfig config, uint256 preReserves, int256 flow)
         internal
         view
-        returns (BufferResult)
+        returns (DecreaseResult)
     {
-        return buffer.recordFlow({config: config, time: block.timestamp, preReserves: preReserves, flow: flow});
+        return limiter.recordFlow({config: config, time: block.timestamp, preReserves: preReserves, flow: flow});
     }
 
-    function recordFlow(Buffer buffer, BufferConfig config, uint256 time, uint256 preReserves, int256 flow)
+    function recordFlow(DecreaseLimiter limiter, LimiterConfig config, uint256 time, uint256 preReserves, int256 flow)
         internal
         pure
-        returns (BufferResult)
+        returns (DecreaseResult)
     {
-        (int256 maxDrawWad, uint256 mainWindow, uint256 elasticWindow) = config.unpack();
-        return buffer._recordFlow({
+        (uint256 maxDrawWad, uint256 mainWindow, uint256 elasticWindow) = config.unpack();
+        return limiter._recordFlow({
             maxDrawWad: maxDrawWad,
             mainWindow: mainWindow,
             elasticWindow: elasticWindow,
@@ -84,12 +85,16 @@ library BufferLib {
         });
     }
 
-    function update(Buffer buffer, BufferConfig config) internal view returns (Buffer) {
-        return buffer.update(config, block.timestamp);
+    function update(DecreaseLimiter limiter, LimiterConfig config) internal view returns (DecreaseLimiter) {
+        return limiter.update(config, block.timestamp);
     }
 
-    function update(Buffer buffer, BufferConfig config, uint256 time) internal pure returns (Buffer) {
-        (uint256 relMainBuffer, uint256 relElastic) = buffer._getUpdated({
+    function update(DecreaseLimiter limiter, LimiterConfig config, uint256 time)
+        internal
+        pure
+        returns (DecreaseLimiter)
+    {
+        (uint256 relMainBuffer, uint256 relElastic) = limiter._getUpdated({
             mainWindow: config.getMainWindow(),
             elasticWindow: config.getElasticWindow(),
             time: time
@@ -97,35 +102,35 @@ library BufferLib {
         return _setBuffer({lastUpdatedAt: time, relMainBuffer: relMainBuffer, relElastic: relElastic});
     }
 
-    function unpack(Buffer buffer)
+    function unpack(DecreaseLimiter limiter)
         internal
         pure
         returns (uint256 lastUpdatedAt, uint256 relMainBuffer, uint256 relElastic)
     {
         assembly {
-            lastUpdatedAt := shr(_TIMESTAMP_OFFSET, buffer)
-            relMainBuffer := and(shr(_MAIN_BUFFER_OFFSET, buffer), sub(_BOUND_MAIN_USED_WAD, 1))
-            relElastic := and(shr(_ELASTIC_BUFFER_OFFSET, buffer), sub(_BOUND_ELASTIC_BUFFER_WAD, 1))
+            lastUpdatedAt := shr(_TIMESTAMP_OFFSET, limiter)
+            relMainBuffer := and(shr(_MAIN_BUFFER_OFFSET, limiter), sub(_BOUND_MAIN_USED_WAD, 1))
+            relElastic := and(shr(_ELASTIC_BUFFER_OFFSET, limiter), sub(_BOUND_ELASTIC_BUFFER_WAD, 1))
         }
     }
 
-    function getMaxFlow(Buffer buffer, BufferConfig config, uint256 currentReserves)
+    function getMaxFlow(DecreaseLimiter buffer, LimiterConfig config, uint256 currentReserves)
         internal
         pure
-        returns (int256 maxMainFlow, uint256 maxElasticDeplete)
+        returns (uint256 maxMainFlow, uint256 maxElasticDeplete)
     {
         return buffer._getMaxFlow(config.getMaxDrawWad(), currentReserves);
     }
 
     function _recordFlow(
-        Buffer buffer,
-        int256 maxDrawWad,
+        DecreaseLimiter buffer,
+        uint256 maxDrawWad,
         uint256 mainWindow,
         uint256 elasticWindow,
         uint256 time,
         uint256 preReserves,
         int256 flow
-    ) internal pure returns (BufferResult) {
+    ) internal pure returns (DecreaseResult) {
         (uint256 relMainBuffer, uint256 relElastic) =
             buffer._getUpdated({mainWindow: mainWindow, elasticWindow: elasticWindow, time: time});
 
@@ -133,10 +138,11 @@ library BufferLib {
         uint256 changeWad = abs(flow) * WAD;
         uint256 newReserves = deltaAdd(preReserves, flow);
 
-        // Buffer can either be replenished or temporarily expanded. Buffer is depleted when the
+        // The limiter can either be replenished or temporarily expanded. The decrease limiter is
+        // depleted when the
         // flow is in the limited direction i.e. the sign of the `maxDrawWad` parameter and `flow`
         // are the same.
-        if ((flow < 0) == (maxDrawWad < 0)) {
+        if (flow < 0) {
             // Deplete elastic buffer first.
             unchecked {
                 (changeWad, elasticBufferWad) = changeWad > elasticBufferWad
@@ -146,9 +152,7 @@ library BufferLib {
 
             // Compute main buffer update components (v * x; dx / r).
             uint256 mainBufferWad = relMainBuffer * preReserves;
-            // Can apply `abs` to `maxDrawWad` because we know the signs were the same and
-            // `changeWad` is already unsigned.
-            uint256 bufferChange = changeWad * WAD / abs(maxDrawWad);
+            uint256 bufferChange = changeWad * WAD / maxDrawWad;
 
             // Check whether limit was exceeded (if so it means both buffers were depleted => 0).
             if (bufferChange > mainBufferWad) {
@@ -169,7 +173,7 @@ library BufferLib {
         } else {
             // Adds to elastic buffer, this ensures that short-term liquidity changes can cancel each
             // other out with limited impact on the main buffer. Mitigates DoS but also leaves newer
-            // flows vulnerable. Large legitimate changes, such as large deposits should therefore
+            // flows vulnerable. Large legitimate inflows, such as large deposits should therefore
             // be done in chunks over time to avoid having too much vulnerable at one time.
             elasticBufferWad += changeWad;
             return Ok(
@@ -182,33 +186,33 @@ library BufferLib {
         }
     }
 
-    function _getMaxFlow(Buffer buffer, int256 maxDrawWad, uint256 currentReserves)
+    function _getMaxFlow(DecreaseLimiter limiter, uint256 maxDrawWad, uint256 currentReserves)
         internal
         pure
-        returns (int256 maxMainFlow, uint256 maxElasticDeplete)
+        returns (uint256 maxMainFlow, uint256 maxElasticDeplete)
     {
-        (, uint256 relMainBuffer, uint256 relElastic) = buffer.unpack();
-        maxMainFlow = (relMainBuffer * currentReserves).toInt256() * maxDrawWad / SWAD / SWAD;
+        (, uint256 relMainBuffer, uint256 relElastic) = limiter.unpack();
+        maxMainFlow = relMainBuffer * currentReserves * maxDrawWad / WAD / WAD;
         maxElasticDeplete = relElastic * currentReserves / WAD;
     }
 
-    function _getUpdated(Buffer buffer, uint256 mainWindow, uint256 elasticWindow, uint256 time)
+    function _getUpdated(DecreaseLimiter limiter, uint256 mainWindow, uint256 elasticWindow, uint256 time)
         internal
         pure
         returns (uint256 relMainBuffer, uint256 relElastic)
     {
         uint256 lastUpdatedAt;
-        (lastUpdatedAt, relMainBuffer, relElastic) = buffer.unpack();
-        uint256 delta = _delta(time, lastUpdatedAt);
+        (lastUpdatedAt, relMainBuffer, relElastic) = limiter.unpack();
+        uint256 dt = delta(time, lastUpdatedAt);
 
-        relMainBuffer = min(relMainBuffer + delta * WAD / mainWindow, WAD);
-        relElastic = cappedSub(relElastic, relElastic * delta / elasticWindow);
+        relMainBuffer = min(relMainBuffer + dt * WAD / mainWindow, WAD);
+        relElastic = cappedSub(relElastic, relElastic * dt / elasticWindow);
     }
 
     function _setBuffer(uint256 lastUpdatedAt, uint256 relMainBuffer, uint256 relElastic)
         private
         pure
-        returns (Buffer buffer)
+        returns (DecreaseLimiter limiter)
     {
         assembly {
             if iszero(and(lt(relMainBuffer, _BOUND_MAIN_USED_WAD), lt(relElastic, _BOUND_ELASTIC_BUFFER_WAD))) {
@@ -216,7 +220,7 @@ library BufferLib {
                 revert(0x1c, 0x04)
             }
             // Purposefully truncate `lastUpdatedAt`.
-            buffer :=
+            limiter :=
                 or(
                     shl(_TIMESTAMP_OFFSET, lastUpdatedAt),
                     or(shl(_MAIN_BUFFER_OFFSET, relMainBuffer), shl(_ELASTIC_BUFFER_OFFSET, relElastic))
@@ -225,63 +229,59 @@ library BufferLib {
     }
 
     ////////////////////////////////////////////////////////////////
-    //                   BUFFER RESULT HELPERS                    //
+    //                   LIMITER RESULT HELPERS                   //
     ////////////////////////////////////////////////////////////////
 
-    function Ok(Buffer buffer) internal pure returns (BufferResult result) {
+    function Ok(DecreaseLimiter limiter) internal pure returns (DecreaseResult result) {
         assembly {
-            result := buffer
+            result := limiter
         }
     }
 
-    function Err(Buffer buffer) internal pure returns (BufferResult result) {
+    function Err(DecreaseLimiter limiter) internal pure returns (DecreaseResult result) {
         assembly {
-            result := or(buffer, _BUFFER_IS_ERROR_FLAG)
+            result := or(limiter, _BUFFER_IS_ERROR_FLAG)
         }
     }
 
-    function isErr(BufferResult result) internal pure returns (bool errored) {
+    function isOk(DecreaseResult result) internal pure returns (bool ok) {
+        assembly {
+            ok := iszero(and(result, _BUFFER_IS_ERROR_FLAG))
+        }
+    }
+
+    function isErr(DecreaseResult result) internal pure returns (bool errored) {
         assembly {
             errored := and(result, _BUFFER_IS_ERROR_FLAG)
         }
     }
 
     /**
-     * @dev Unwraps a successful `BufferResult` type into a `Buffer`. Reverts if result is an error
+     * @dev Unwraps a successful `DecreaseResult` type into a `DecreaseLimiter`. Reverts if result is an error
      * (has error flag set).
      */
-    function unwrap(BufferResult result) internal pure returns (Buffer buffer) {
+    function unwrap(DecreaseResult result) internal pure returns (DecreaseLimiter limiter) {
         assembly {
             if and(result, _BUFFER_IS_ERROR_FLAG) {
-                mstore(0x00, _UNWRAP_BUFFER_ERROR_ERROR_SELECTOR)
+                mstore(0x00, _UNWRAP_BUFFER_ERR_ERROR_SELECTOR)
                 revert(0x1c, 0x04)
             }
-            buffer := result
+            limiter := result
         }
     }
 
     /**
-     * @dev Unwraps an errored `BufferResult` type into a `Buffer`. Reverts if result has no error
+     * @dev Unwraps an errored `DecreaseResult` type into a `DecreaseLimiter`. Reverts if result has no error
      * (error flag not set).
      */
-    function unwrapErr(BufferResult result) internal pure returns (Buffer buffer) {
+    function unwrapErr(DecreaseResult result) internal pure returns (DecreaseLimiter limiter) {
         assembly {
             if iszero(and(result, _BUFFER_IS_ERROR_FLAG)) {
                 mstore(0x00, _UNWRAP_BUFFER_OK_ERROR_SELECTOR)
                 revert(0x1c, 0x04)
             }
             // Clear error flag.
-            buffer := and(result, not(_BUFFER_IS_ERROR_FLAG))
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////
-    //                        MISC HELPERS                        //
-    ////////////////////////////////////////////////////////////////
-
-    function _delta(uint256 time, uint256 lastUpdatedAt) internal pure returns (uint256 delta) {
-        assembly {
-            delta := and(_TIMESTAMP_MASK, sub(time, lastUpdatedAt))
+            limiter := and(result, not(_BUFFER_IS_ERROR_FLAG))
         }
     }
 }

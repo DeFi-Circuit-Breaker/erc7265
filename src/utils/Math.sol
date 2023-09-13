@@ -39,11 +39,23 @@ function abs(int256 x) pure returns (uint256 y) {
 function deltaAdd(uint256 x, int256 delta) pure returns (uint256 z) {
     assembly {
         z := add(x, delta)
-        if iszero(sgt(or(x, z), not(0))) {
+        if iszero(eq(lt(z, x), slt(delta, 0))) {
             // revert Panic(0x11)
             mstore(0x00, 0x4e487b71)
             mstore(0x20, 0x11)
             revert(0x1c, 0x24)
         }
+    }
+}
+
+function sign(int256 x) pure returns (int256 s) {
+    assembly {
+        s := sub(1, shl(1, slt(x, 0)))
+    }
+}
+
+function signNeg(int256 x) pure returns (int256 s) {
+    assembly {
+        s := sub(shl(1, slt(x, 0)), 1)
     }
 }

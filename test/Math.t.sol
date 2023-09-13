@@ -2,7 +2,7 @@
 pragma solidity 0.8.21;
 
 import {Test} from "forge-std/Test.sol";
-import {min, max, cappedSub, deltaAdd, abs} from "src/utils/Math.sol";
+import {min, max, cappedSub, deltaAdd, abs, sign, signNeg} from "src/utils/Math.sol";
 
 /// @author philogy <https://github.com/philogy>
 contract MathTest is Test {
@@ -35,20 +35,22 @@ contract MathTest is Test {
     }
 
     function test_fuzzingDeltaAdd(uint256 x, int256 y) public {
-        int256 unsafeRes;
-        unchecked {
-            unsafeRes = int256(x) + y;
+        uint256 absY;
+
+        if (y == type(int256).min) {
+            absY = uint256(y);
+        } else if (y < 0) {
+            absY = uint256(-y);
+        } else {
+            absY = uint256(y);
         }
 
-        if (int256(x) < 0 || unsafeRes < 0 || (y < 0 && uint256(unsafeRes) >= x) || (y > 0 && uint256(unsafeRes) <= x))
-        {
+        if ((y < 0 && absY > x) || (y > 0 && absY > type(uint256).max - x)) {
             vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
             deltaAdd(x, y);
         } else {
-            int256 res = int256(x) + y;
-            assertGe(res, 0);
-
-            assertEq(deltaAdd(x, y), uint256(res));
+            uint256 res = y < 0 ? x - absY : x + absY;
+            assertEq(deltaAdd(x, y), res);
         }
     }
 
@@ -56,5 +58,13 @@ contract MathTest is Test {
         unchecked {
             assertEq(abs(x), x < 0 ? uint256(-x) : uint256(x));
         }
+    }
+
+    function test_fuzzingSign(int256 x) public {
+        assertEq(x < 0 ? int256(-1) : int256(1), sign(x));
+    }
+
+    function test_fuzzingSignNeg(int256 x) public {
+        assertEq(x < 0 ? int256(1) : int256(-1), signNeg(x));
     }
 }
