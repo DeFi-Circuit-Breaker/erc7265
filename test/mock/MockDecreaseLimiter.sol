@@ -19,8 +19,9 @@ contract MockDecreaseLimiter {
 
     error LimiterExceeded();
 
-    constructor(uint256 maxDrawWad, uint256 mainWindow, uint256 elasticWindow) {
+    constructor(uint256 maxDrawWad, uint256 mainWindow, uint256 elasticWindow, uint256 startTvl) {
         config = LimiterConfigLib.initNew(maxDrawWad, mainWindow, elasticWindow);
+        tvl = startTvl;
     }
 
     function trackedInflow(uint256 amount) external {
