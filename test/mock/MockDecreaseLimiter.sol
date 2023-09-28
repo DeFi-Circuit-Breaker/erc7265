@@ -2,7 +2,7 @@
 pragma solidity 0.8.21;
 
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {DecreaseLimiterLib, DecreaseLimiter, DecreaseResult} from "src/limiter/DecreaseLimiterLib.sol";
+import {DecreaseLimiterLib, DecreaseLimiter} from "src/limiter/DecreaseLimiterLib.sol";
 import {LimiterConfigLib, LimiterConfig} from "src/limiter/LimiterConfigLib.sol";
 
 /// @author philogy <https://github.com/philogy>
@@ -25,7 +25,9 @@ contract MockDecreaseLimiter {
     }
 
     function trackedInflow(uint256 amount) external {
-        limiter = limiter.recordFlow({config: config, preReserves: tvl, flow: amount.toInt256()}).unwrap();
+        uint256 overflow;
+        (limiter, overflow) = limiter.applyInflow(config, tvl, amount);
+        assert(overflow == 0);
         tvl += amount;
     }
 
@@ -35,21 +37,21 @@ contract MockDecreaseLimiter {
 
     function trackedOutflow(uint256 amount) external {
         if (amount > tvl) revert InvalidAmount();
-        DecreaseResult result = limiter.recordFlow({config: config, preReserves: tvl, flow: -amount.toInt256()});
-        if (result.isErr()) revert LimiterExceeded();
-        limiter = result.unwrap();
+        (DecreaseLimiter updatedLimiter, uint256 overflow) = limiter.applyOutflow(config, tvl, amount);
+        if (overflow > 0) revert LimiterExceeded();
+        limiter = updatedLimiter;
         tvl -= amount;
     }
 
     function update() external {
-        limiter = limiter.update(config);
+        limiter = limiter.applyUpdate(config, tvl);
     }
 
     function getRaw() external view returns (uint256 lastUpdatedAt, uint256 relMainBuffer, uint256 relElastic) {
-        return limiter.unpack();
+        return limiter.getState().unpack();
     }
 
     function getMaxFlow() external view returns (uint256 maxMainFlow, uint256 maxElasticDeplete) {
-        return limiter.update(config).getMaxFlow(config, tvl);
+        return limiter._getPassivelyUpdatedBuffers(config, tvl, block.timestamp);
     }
 }

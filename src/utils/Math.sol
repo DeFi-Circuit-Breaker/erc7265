@@ -31,12 +31,14 @@ function cappedSub(uint256 x, uint256 y) pure returns (uint256 z) {
  * the same representation as +2^255.
  */
 function abs(int256 x) pure returns (uint256 y) {
+    /// @solidity memory-safe-assembly
     assembly {
         y := xor(x, mul(slt(x, 0), xor(sub(0, x), x)))
     }
 }
 
 function deltaAdd(uint256 x, int256 delta) pure returns (uint256 z) {
+    /// @solidity memory-safe-assembly
     assembly {
         z := add(x, delta)
         if iszero(eq(lt(z, x), slt(delta, 0))) {
@@ -49,12 +51,14 @@ function deltaAdd(uint256 x, int256 delta) pure returns (uint256 z) {
 }
 
 function sign(int256 x) pure returns (int256 s) {
+    /// @solidity memory-safe-assembly
     assembly {
         s := sub(1, shl(1, slt(x, 0)))
     }
 }
 
 function signNeg(int256 x) pure returns (int256 s) {
+    /// @solidity memory-safe-assembly
     assembly {
         s := sub(shl(1, slt(x, 0)), 1)
     }

@@ -5,11 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {abs, sign, signNeg} from "src/utils/Math.sol";
 import {LimiterConfigLib, LimiterConfig} from "src/limiter/LimiterConfigLib.sol";
-import {DecreaseLimiterLib, DecreaseLimiter, DecreaseResult} from "src/limiter/DecreaseLimiterLib.sol";
+import {DecreaseLimiterLib, DecreaseLimiter} from "src/limiter/DecreaseLimiterLib.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 /// @author philogy <https://github.com/philogy>
-contract BufferLimtierLibTest is Test {
+contract DecreaseLimiterLibTest is Test {
     using SafeCastLib for uint256;
     using SafeCastLib for int256;
 
@@ -20,7 +20,7 @@ contract BufferLimtierLibTest is Test {
     uint256 tvl;
 
     function setUp() public {
-        limiter = DecreaseLimiterLib.initNew(block.timestamp);
+        limiter = DecreaseLimiterLib.initNew(block.timestamp, 0, config);
     }
 
     function testPass() public {
@@ -71,32 +71,26 @@ contract BufferLimtierLibTest is Test {
     }
 
     function _update() internal {
-        limiter = limiter.update(config);
+        limiter = limiter.applyUpdate(config, tvl);
     }
 
     function _inflow(uint256 amount) internal {
-        int256 flow = amount.toInt256();
-        limiter = limiter.recordFlow(config, tvl, flow).unwrap();
-        _applyTvlChange(flow);
+        uint256 overflow;
+        (limiter, overflow) = limiter.applyInflow(config, tvl, amount);
+        assert(overflow == 0);
+        tvl += amount;
     }
 
     function _outflow(uint256 amount) internal {
-        _handleFlow(-amount.toInt256());
-    }
-
-    function _handleFlow(int256 flow) internal {
-        if ((flow < 0) == (config.getMaxDrawWad() < 0)) {
-            DecreaseResult result = limiter.recordFlow(config, tvl, flow);
-
-            if (result.isOk()) {
-                _applyTvlChange(flow);
-                limiter = result.unwrap();
-            } else {
-                console.log("!!! LIMIT HIT !!!");
-                emit log_named_decimal_int("  flow", flow, 18);
-                fail();
-            }
-        } else {}
+        (DecreaseLimiter newLimiter, uint256 overflow) = limiter.applyOutflow(config, tvl, amount);
+        if (overflow == 0) {
+            tvl -= amount;
+            limiter = newLimiter;
+        } else {
+            console.log("!!! LIMIT HIT !!!");
+            emit log_named_decimal_uint("  flow", amount, 18);
+            fail();
+        }
     }
 
     function print() public {
@@ -104,13 +98,14 @@ contract BufferLimtierLibTest is Test {
     }
 
     function print(string memory name) public {
-        (uint256 lastUpdatedAt, uint256 mainUsedWad, uint256 elasticBufferWad) = limiter.unpack();
+        (uint256 lastUpdatedAt, uint256 mainUsedWad, uint256 elasticBufferWad) = limiter.getState().unpack();
         console.log("Limiter \"%s\" (t: %d)", name, block.timestamp);
         console.log("  last updated: %d", lastUpdatedAt);
         emit log_named_decimal_uint("  TVL         ", tvl, 18);
         emit log_named_decimal_uint("  main        ", mainUsedWad, 18);
         emit log_named_decimal_uint("  elastic     ", elasticBufferWad, 18);
-        (uint256 maxMainFlow, uint256 maxElasticDeplete) = limiter.getMaxFlow(config, tvl);
+        (uint256 maxMainFlow, uint256 maxElasticDeplete) =
+            limiter._getPassivelyUpdatedBuffers(config, tvl, block.timestamp);
         uint256 maxOut = maxMainFlow + maxElasticDeplete;
         emit log_named_decimal_uint("  max out     ", maxOut, 18);
     }
