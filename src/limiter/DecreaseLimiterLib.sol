@@ -184,10 +184,7 @@ library DecreaseLimiterLib {
             dt: dt,
             replenishWindow: mainReplenishWindow
         });
-        elasticBuffer = LimiterMathLib.decayElasticBuffer({
-            elasticBuffer: elasticBuffer,
-            dt: dt,
-            decayWindow: elasticDecayWindow
-        });
+        elasticBuffer =
+            LimiterMathLib.decayElasticBuffer({elasticBuffer: elasticBuffer, dt: dt, decayWindow: elasticDecayWindow});
     }
 }
