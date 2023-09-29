@@ -1,38 +1,45 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Ownable} from "solady/auth/Ownable.sol";
 import {Pausable} from "openzeppelin/security/Pausable.sol";
 import {BaseDSM} from "./BaseDSM.sol";
 
 /// @author philogy <https://github.com/philogy>
-abstract contract MainDSM is Ownable, BaseDSM, Pausable {
+abstract contract MainDSM is BaseDSM, Pausable {
     uint40 public currentDelay;
     uint40 internal _lastPaused;
     uint64 internal _effectNonce;
 
     event DelaySet(uint256 delay);
 
-    constructor(address initialOwner, uint40 startDelay) {
-        _initializeOwner(initialOwner);
+    error NotSettlementMaster();
+
+    constructor(uint40 startDelay) {
         _setDelay(startDelay);
     }
 
-    function pause() external onlyOwner {
+    modifier onlySettlementMaster() {
+        if (msg.sender != settlementMaster()) revert NotSettlementMaster();
+        _;
+    }
+
+    function pause() external onlySettlementMaster {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlySettlementMaster {
         _unpause();
     }
 
-    function setDelay(uint40 newDelay) external onlyOwner {
+    function setDelay(uint40 newDelay) external onlySettlementMaster {
         _setDelay(newDelay);
     }
 
     function pausedTill() public view override returns (uint256) {
         return paused() ? type(uint256).max : _lastPaused;
     }
+
+    function settlementMaster() public view virtual returns (address);
 
     function _getUniqueNonce() internal override returns (uint64) {
         unchecked {
@@ -45,7 +52,7 @@ abstract contract MainDSM is Ownable, BaseDSM, Pausable {
         super._unpause();
     }
 
-    function _setDelay(uint40 delay) internal {
+    function _setDelay(uint40 delay) internal virtual {
         emit DelaySet(currentDelay = delay);
     }
 
