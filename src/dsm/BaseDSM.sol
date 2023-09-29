@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {FixedPointMathLib as Math} from "solady/utils/FixedPointMathLib.sol";
-
 /// @author philogy <https://github.com/philogy>
 abstract contract BaseDSM {
     enum PayloadVersion {
@@ -13,14 +11,14 @@ abstract contract BaseDSM {
 
     mapping(bytes32 => uint256) public settleTimeOf;
 
-    event Scheduled(bytes32 indexed effectID, bytes effectData);
-    event Executed(bytes32 indexed effectID);
+    event Scheduled(bytes32 indexed effectId, bytes effectData);
+    event Executed(bytes32 indexed effectId);
 
     error InvalidValue();
     error UnsupportedVersion(PayloadVersion version);
-    error NonexistentEffect(bytes32 effectID);
-    error NotSettled(bytes32 effectID);
-    error EffectFailed(bytes32 effectID);
+    error NonexistentEffect(bytes32 effectId);
+    error NotSettled(bytes32 effectId);
+    error EffectFailed(bytes32 effectId);
     error UnauthorizedScheduler(address caller);
 
     constructor() {
@@ -59,14 +57,14 @@ abstract contract BaseDSM {
 
     function _schedule(address target, uint256 value, bytes memory innerPayload)
         internal
-        returns (bytes32 newEffectID)
+        returns (bytes32 newEffectId)
     {
         // Only `innerPayload` is variable length so it's safe to apply `encodePacked` + hashing.
         bytes memory effectData = abi.encodePacked(target, value, _getUniqueNonce(), innerPayload);
-        newEffectID = keccak256(effectData);
-        settleTimeOf[newEffectID] = block.timestamp + _currentDelay();
-        emit Scheduled(newEffectID, effectData);
-        // Implicit return of `newEffectID`.
+        newEffectId = keccak256(effectData);
+        settleTimeOf[newEffectId] = block.timestamp + _currentDelay();
+        emit Scheduled(newEffectId, effectData);
+        // Implicit return of `newEffectId`.
     }
 
     function _decodeEffect(uint256 i, bytes calldata data)
@@ -83,9 +81,9 @@ abstract contract BaseDSM {
     }
 
     function _executeNormalSettled(address target, uint256 value, uint64 nonce, bytes calldata innerPayload) internal {
-        (bytes32 effectID, uint256 settlesAt) = _validateEffectExists(target, value, nonce, innerPayload);
-        if (settlesAt < Math.max(block.timestamp, pausedTill())) revert NotSettled(effectID);
-        _executeEffect(effectID, target, value, innerPayload);
+        (bytes32 effectId, uint256 settlesAt) = _validateEffectExists(target, value, nonce, innerPayload);
+        if (settlesAt > block.timestamp || settlesAt <= pausedTill()) revert NotSettled(effectId);
+        _executeEffect(effectId, target, value, innerPayload);
     }
 
     function _executeConfirmedEffect(
@@ -95,16 +93,16 @@ abstract contract BaseDSM {
         uint64 nonce,
         bytes calldata innerPayload
     ) internal {
-        (bytes32 effectID,) = _validateEffectExists(target, value, nonce, innerPayload);
-        _checkConfirmation(confirmProof);
-        _executeEffect(effectID, target, value, innerPayload);
+        (bytes32 effectId,) = _validateEffectExists(target, value, nonce, innerPayload);
+        _checkConfirmation(effectId, confirmProof);
+        _executeEffect(effectId, target, value, innerPayload);
     }
 
-    function _executeEffect(bytes32 effectID, address target, uint256 value, bytes calldata innerPayload) internal {
-        delete settleTimeOf[effectID];
+    function _executeEffect(bytes32 effectId, address target, uint256 value, bytes calldata innerPayload) internal {
+        delete settleTimeOf[effectId];
         (bool success,) = target.call{value: value}(innerPayload);
-        if (!success) revert EffectFailed(effectID);
-        emit Executed(effectID);
+        if (!success) revert EffectFailed(effectId);
+        emit Executed(effectId);
     }
 
     function _validateEffectExists(address target, uint256 value, uint64 nonce, bytes calldata innerPayload)
@@ -112,17 +110,17 @@ abstract contract BaseDSM {
         view
         returns (bytes32, uint256)
     {
-        bytes32 effectID = keccak256(abi.encodePacked(target, value, nonce, innerPayload));
-        uint256 settlesAt = settleTimeOf[effectID];
-        if (settlesAt == 0) revert NonexistentEffect(effectID);
-        return (effectID, settlesAt);
+        bytes32 effectId = keccak256(abi.encodePacked(target, value, nonce, innerPayload));
+        uint256 settlesAt = settleTimeOf[effectId];
+        if (settlesAt == 0) revert NonexistentEffect(effectId);
+        return (effectId, settlesAt);
     }
 
     function _getUniqueNonce() internal virtual returns (uint64);
 
     function _currentDelay() internal view virtual returns (uint128);
 
-    function _checkConfirmation(bytes calldata confirmationProof) internal virtual;
+    function _checkConfirmation(bytes32 effectId, bytes calldata confirmationProof) internal virtual;
 
     function _decodeVarLength(uint256 i, bytes calldata buffer) internal pure returns (uint256, bytes calldata) {
         unchecked {
