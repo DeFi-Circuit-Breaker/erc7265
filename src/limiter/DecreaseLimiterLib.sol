@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LimiterConfig} from "./LimiterConfigLib.sol";
 import {LimiterStateLib, LimiterState} from "./LimiterStateLib.sol";
-import {cappedSub, abs, deltaAdd, min} from "../utils/Math.sol";
 import {delta} from "../utils/Timestamp.sol";
 import {LimiterMathLib} from "./LimiterMathLib.sol";
 
@@ -15,12 +13,7 @@ using DecreaseLimiterLib for DecreaseLimiter global;
 
 /// @author philogy <https://github.com/philogy>
 library DecreaseLimiterLib {
-    using SafeCastLib for uint256;
-    using SafeCastLib for int256;
     using FixedPointMathLib for uint256;
-
-    uint256 internal constant WAD = 1e18;
-    int256 internal constant SWAD = 1e18;
 
     error MainBufferAboveMax();
     error ElasticBufferAboveTVL();
@@ -58,17 +51,14 @@ library DecreaseLimiterLib {
     }
 
     function getState(DecreaseLimiter limiter) internal pure returns (LimiterState state) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            state := limiter
-        }
+        return LimiterState.wrap(DecreaseLimiter.unwrap(limiter));
     }
 
     function mainBufferToRepr(uint256 buffer, uint256 tvl, LimiterConfig config) internal pure returns (uint256 repr) {
         uint256 maxDrawWad = config.getMaxDrawWad();
         uint256 maxBuffer = tvl.mulWad(maxDrawWad);
         if (buffer > maxBuffer) revert MainBufferAboveMax();
-        repr = maxBuffer == 0 ? 0 :buffer.divWad(maxBuffer);
+        repr = maxBuffer == 0 ? 0 : buffer.divWad(maxBuffer);
     }
 
     function mainBufferFromRepr(uint256 repr, uint256 tvl, LimiterConfig config)
@@ -77,7 +67,7 @@ library DecreaseLimiterLib {
         returns (uint256 buffer)
     {
         uint256 maxDrawWad = config.getMaxDrawWad();
-        buffer =  tvl.mulWad(maxDrawWad).mulWad(repr);
+        buffer = tvl.mulWad(maxDrawWad).mulWad(repr);
     }
 
     function elasticBufferToRepr(uint256 buffer, uint256 tvl, LimiterConfig) internal pure returns (uint256 repr) {
@@ -186,15 +176,18 @@ library DecreaseLimiterLib {
         mainBuffer = mainBufferFromRepr(mainBufferRepr, tvl, config);
         elasticBuffer = elasticBufferFromRepr(elasticBufferRepr, tvl, config);
         uint256 dt = delta(currentTime, lastUpdatedAt);
-        (uint256 maxDrawWad, uint256 mainWindow, uint256 elasticWindow) = config.unpack();
+        (uint256 maxDrawdownWad, uint256 mainReplenishWindow, uint256 elasticDecayWindow) = config.unpack();
         // Calculate passive buffer updates.
         mainBuffer = LimiterMathLib.replenishMainBuffer({
             buffer: mainBuffer,
-            bufferCap: tvl.mulWad(maxDrawWad),
+            bufferCap: tvl.mulWad(maxDrawdownWad),
             dt: dt,
-            replenishWindow: mainWindow
+            replenishWindow: mainReplenishWindow
         });
-        elasticBuffer =
-            LimiterMathLib.decayElasticBuffer({elasticBuffer: elasticBuffer, dt: dt, decayWindow: elasticWindow});
+        elasticBuffer = LimiterMathLib.decayElasticBuffer({
+            elasticBuffer: elasticBuffer,
+            dt: dt,
+            decayWindow: elasticDecayWindow
+        });
     }
 }
