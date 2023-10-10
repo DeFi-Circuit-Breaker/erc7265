@@ -9,7 +9,7 @@ import {MainDSM} from "../dsm/MainDSM.sol";
 import {FungibleAssetLib, FungibleAsset, NATIVE} from "../utils/FungibleAssetLib.sol";
 
 /// @author philogy <https://github.com/philogy>
-abstract contract AssetProtector is MainDSM {
+abstract contract AssetProtection is MainDSM {
     LimiterConfig internal immutable _DEFAULT_LIMITER_CONFIG;
 
     // @dev 30 minutes is already pretty low, a higher default delay is recommended
