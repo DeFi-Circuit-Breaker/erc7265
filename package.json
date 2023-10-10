@@ -1,0 +1,13 @@
+{
+  "name": "erc7265",
+  "version": "0.0.1",
+  "description": "Generalized Circuit Breakers for asset handling smart contract",
+  "main": "src/",
+  "repository": "git@github.com:DeFi-Circuit-Breaker/erc7265.git",
+  "author": "Philogy <philippe@dereg.io>",
+  "license": "MIT",
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.3",
+    "solady": "^0.0.123"
+  }
+}
