@@ -6,6 +6,12 @@
   "repository": "git@github.com:DeFi-Circuit-Breaker/erc7265.git",
   "author": "Philogy <philippe@dereg.io>",
   "license": "MIT",
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md",
+    "package.json"
+  ],
   "dependencies": {
     "@openzeppelin/contracts": "v5.0.0",
     "solady": "v0.0.124"
