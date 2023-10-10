@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Pausable} from "openzeppelin/security/Pausable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {BaseDSM} from "./BaseDSM.sol";
 
 /// @author philogy <https://github.com/philogy>

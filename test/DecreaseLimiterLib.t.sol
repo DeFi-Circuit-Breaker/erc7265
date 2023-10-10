@@ -2,7 +2,7 @@
 pragma solidity 0.8.21;
 
 import {Test} from "forge-std/Test.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {SafeCastLib} from "solady/src/utils/SafeCastLib.sol";
 import {abs, sign, signNeg} from "src/utils/Math.sol";
 import {LimiterConfigLib, LimiterConfig} from "src/limiter/LimiterConfigLib.sol";
 import {DecreaseLimiterLib, DecreaseLimiter} from "src/limiter/DecreaseLimiterLib.sol";

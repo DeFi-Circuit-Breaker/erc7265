@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
+import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
+import {MerkleProofLib} from "solady/src/utils/MerkleProofLib.sol";
 import {LimiterConfig} from "../limiter/LimiterConfigLib.sol";
 import {DecreaseLimiter} from "../limiter/DecreaseLimiterLib.sol";
 import {MainDSM} from "../dsm/MainDSM.sol";

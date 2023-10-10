@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {FixedPointMathLib} from "solady/src/utils/FixedPointMathLib.sol";
 import {LimiterConfig} from "./LimiterConfigLib.sol";
 import {LimiterStateLib, LimiterState} from "./LimiterStateLib.sol";
 import {delta} from "../utils/Timestamp.sol";

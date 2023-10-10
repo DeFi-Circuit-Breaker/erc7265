@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
 type FungibleAsset is address;
 

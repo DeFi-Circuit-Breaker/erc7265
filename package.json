@@ -7,7 +7,7 @@
   "author": "Philogy <philippe@dereg.io>",
   "license": "MIT",
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.3",
-    "solady": "^0.0.123"
+    "@openzeppelin/contracts": "v5.0.0",
+    "solady": "v0.0.124"
   }
 }

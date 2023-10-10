@@ -1,2 +1,2 @@
-solady/=node_modules/solady/src/
-@openzeppelin/=node_modules/@openzeppelin/contracts/
+solady/=lib/solady/
+@openzeppelin/=lib/openzeppelin-contracts/

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.21;
 
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {SafeCastLib} from "solady/src/utils/SafeCastLib.sol";
 import {DecreaseLimiterLib, DecreaseLimiter} from "src/limiter/DecreaseLimiterLib.sol";
 import {LimiterConfigLib, LimiterConfig} from "src/limiter/LimiterConfigLib.sol";
 
